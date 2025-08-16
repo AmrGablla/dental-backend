@@ -12,13 +12,20 @@ help:
 	@echo "  dev-setup    - Set up development environment"
 	@echo "  build        - Build all packages and services"
 	@echo "  test         - Run all tests"
+	@echo "  test-infrastructure - Test infrastructure setup"
 	@echo "  lint         - Run linting and type checking"
 	@echo "  run          - Run the API service"
 	@echo "  run-worker   - Run the background worker"
+	@echo "  run-all      - Run all services with Docker Compose"
 	@echo ""
 	@echo "Docker:"
 	@echo "  docker-build - Build Docker images"
 	@echo "  docker-run   - Run services with Docker Compose"
+	@echo "  docker-stop  - Stop Docker services"
+	@echo "  docker-logs  - Show Docker logs"
+	@echo "  docker-clean - Clean Docker resources"
+	@echo "  docker-shell - Open shell in API container"
+	@echo "  docker-worker-shell - Open shell in worker container"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  clean        - Clean build artifacts"
@@ -57,6 +64,10 @@ test-integration:
 	@echo "Running integration tests..."
 	pytest tests/integration/ -v
 
+test-infrastructure:
+	@echo "Testing infrastructure setup..."
+	python3 scripts/test_infrastructure.py
+
 # Linting and formatting
 lint:
 	@echo "Running linting checks..."
@@ -91,20 +102,37 @@ run-worker:
 
 run-all:
 	@echo "Starting all services..."
-	docker-compose up
+	cd infrastructure && docker-compose up
 
 # Docker commands
 docker-build:
 	@echo "Building Docker images..."
-	docker-compose build
+	cd infrastructure && docker-compose build
 
 docker-run:
 	@echo "Running services with Docker Compose..."
-	docker-compose up -d
+	cd infrastructure && docker-compose up -d
 
 docker-stop:
 	@echo "Stopping Docker services..."
-	docker-compose down
+	cd infrastructure && docker-compose down
+
+docker-logs:
+	@echo "Showing Docker logs..."
+	cd infrastructure && docker-compose logs -f
+
+docker-clean:
+	@echo "Cleaning Docker resources..."
+	cd infrastructure && docker-compose down -v --remove-orphans
+	docker system prune -f
+
+docker-shell:
+	@echo "Opening shell in API container..."
+	cd infrastructure && docker-compose exec api /bin/bash
+
+docker-worker-shell:
+	@echo "Opening shell in worker container..."
+	cd infrastructure && docker-compose exec worker /bin/bash
 
 # Database commands
 db-migrate:

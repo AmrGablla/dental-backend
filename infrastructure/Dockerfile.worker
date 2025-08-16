@@ -1,4 +1,38 @@
-FROM python:3.11-slim
+# Multi-stage build for Worker service
+FROM python:3.11-slim as builder
+
+# Set environment variables for build stage
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Set work directory
+WORKDIR /app
+
+# Install system dependencies for building
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+        curl \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements files
+COPY requirements.txt requirements-dev.txt ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Copy project source
+COPY . .
+
+# Install packages in development mode
+RUN pip install --user -e packages/common
+RUN pip install --user -e services/worker
+
+# Production stage
+FROM python:3.11-slim as production
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -8,28 +42,32 @@ ENV PYTHONPATH=/app
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies
+# Install runtime system dependencies only
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential \
-        libpq-dev \
+        libpq5 \
         curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy project
-COPY . .
-
-# Install packages in development mode
-RUN pip install -e packages/common
-RUN pip install -e services/worker
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Create non-root user
-RUN useradd --create-home --shell /bin/bash app \
-    && chown -R app:app /app
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --shell /bin/bash --create-home app
+
+# Copy Python packages from builder stage
+COPY --from=builder --chown=app:app /root/.local /home/app/.local
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /tmp/dental-backend /app/logs \
+    && chown -R app:app /tmp/dental-backend /app/logs
+
+# Copy application code
+COPY --chown=app:app . .
+
+# Set PATH to include user's local bin
+ENV PATH=/home/app/.local/bin:$PATH
+
+# Switch to non-root user
 USER app
 
 # Health check

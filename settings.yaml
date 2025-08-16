@@ -1,0 +1,99 @@
+# Dental Backend Settings Template
+# Copy this file to settings.yaml and modify as needed for your environment
+
+# Environment Configuration
+environment: development  # development, staging, production, testing
+debug: true
+
+# Database Configuration
+database:
+  url: postgresql://dental_user:dental_password@localhost:5432/dental_backend
+  pool_size: 10
+  max_overflow: 20
+  echo: false
+
+# Redis Configuration
+redis:
+  url: redis://localhost:6379/0
+  max_connections: 10
+
+# S3 Configuration (MinIO for local development)
+s3:
+  endpoint_url: http://localhost:9000
+  access_key_id: minioadmin
+  secret_access_key: minioadmin
+  bucket_name: dental-scans
+  region_name: us-east-1
+  use_ssl: false
+
+# Security Configuration
+security:
+  secret_key: your-secret-key-here-change-in-production
+  algorithm: HS256
+  access_token_expire_minutes: 30
+  refresh_token_expire_days: 7
+
+# Logging Configuration
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: json  # json or text
+  file_path: null  # Optional log file path
+
+# API Configuration
+api:
+  host: 0.0.0.0
+  port: 8000
+  workers: 1
+  reload: true
+  cors_origins:
+    - "*"
+
+# Worker Configuration (Celery)
+worker:
+  broker_url: redis://localhost:6379/0
+  result_backend: redis://localhost:6379/0
+  task_serializer: json
+  result_serializer: json
+  accept_content:
+    - json
+  timezone: UTC
+  enable_utc: true
+  task_track_started: true
+  task_time_limit: 1800  # 30 minutes
+  task_soft_time_limit: 1500  # 25 minutes
+
+# File Processing Configuration
+max_file_size_mb: 100
+allowed_file_types:
+  - stl
+  - ply
+  - obj
+  - gltf
+  - glb
+temp_dir: /tmp/dental-backend
+
+# HIPAA/GDPR Compliance Configuration
+data_retention_days: 2555  # 7 years for HIPAA compliance
+audit_log_enabled: true
+encryption_enabled: true
+
+# Production Environment Overrides
+# Uncomment and modify these settings for production deployment
+# environment: production
+# debug: false
+# security:
+#   secret_key: ${SECRET_KEY}  # Use environment variable
+# database:
+#   url: ${DATABASE_URL}  # Use environment variable
+# redis:
+#   url: ${REDIS_URL}  # Use environment variable
+# s3:
+#   endpoint_url: ${S3_ENDPOINT_URL}  # Use environment variable
+#   access_key_id: ${S3_ACCESS_KEY_ID}  # Use environment variable
+#   secret_access_key: ${S3_SECRET_ACCESS_KEY}  # Use environment variable
+# logging:
+#   level: WARNING
+#   format: json
+# api:
+#   reload: false
+#   workers: 4

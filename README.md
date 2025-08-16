@@ -67,7 +67,7 @@ make build
 
 ```bash
 # Start all services with Docker Compose
-make run-all
+make docker-run
 
 # Or start individual services:
 make run          # API service
@@ -79,6 +79,9 @@ make run-worker   # Background worker
 ```bash
 # Check API health
 curl http://localhost:8000/health
+
+# Test infrastructure
+make test-infrastructure
 
 # Run tests
 make test
