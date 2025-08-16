@@ -32,6 +32,12 @@ security:
   algorithm: HS256
   access_token_expire_minutes: 30
   refresh_token_expire_days: 7
+  kms_key_id: null  # AWS KMS key ID for encryption
+  encryption_enabled: true
+  tls_cert_file: null  # TLS certificate file path
+  tls_key_file: null   # TLS private key file path
+  rate_limit_requests: 100
+  rate_limit_window: 60
 
 # Logging Configuration
 logging:
@@ -76,6 +82,11 @@ temp_dir: /tmp/dental-backend
 data_retention_days: 2555  # 7 years for HIPAA compliance
 audit_log_enabled: true
 encryption_enabled: true
+pii_encryption_enabled: true
+phi_logging_enabled: false
+pseudonymization_enabled: true
+soft_delete_enabled: true
+data_purge_enabled: true
 
 # Production Environment Overrides
 # Uncomment and modify these settings for production deployment

@@ -13,6 +13,7 @@ help:
 	@echo "  build        - Build all packages and services"
 	@echo "  test         - Run all tests"
 	@echo "  test-infrastructure - Test infrastructure setup"
+	@echo "  test-security - Test security and compliance"
 	@echo "  lint         - Run linting and type checking"
 	@echo "  run          - Run the API service"
 	@echo "  run-worker   - Run the background worker"
@@ -67,6 +68,10 @@ test-integration:
 test-infrastructure:
 	@echo "Testing infrastructure setup..."
 	python3 scripts/test_infrastructure.py
+
+test-security:
+	@echo "Testing security and compliance..."
+	python3 scripts/test_security.py
 
 # Linting and formatting
 lint:

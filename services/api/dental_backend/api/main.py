@@ -1,8 +1,17 @@
 """Main FastAPI application for the dental backend API service."""
 
+from dental_backend_common.auth import User
 from dental_backend_common.config import get_settings
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from dental_backend.api.auth import router as auth_router
+from dental_backend.api.compliance import router as compliance_router
+from dental_backend.api.dependencies import (
+    require_admin,
+    require_operator,
+    require_service,
+)
 
 # Get settings
 settings = get_settings()
@@ -16,6 +25,11 @@ app = FastAPI(
     redoc_url="/redoc" if settings.debug else None,
 )
 
+# Add security middleware (simplified for now)
+# app.add_middleware(SecurityHeadersMiddleware)
+# app.add_middleware(AuditMiddleware)
+# app.middleware("http")(rate_limiter)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +38,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(auth_router)
+app.include_router(compliance_router)
 
 
 @app.get("/")
@@ -74,6 +92,45 @@ async def get_config():
             "host": settings.api.host,
             "port": settings.api.port,
             "workers": settings.api.workers,
+        },
+    }
+
+
+@app.get("/protected/admin")
+async def admin_only_endpoint(current_user: User = Depends(require_admin)):
+    """Admin-only endpoint for testing RBAC."""
+    return {
+        "message": "Admin access granted",
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "role": current_user.role.value,
+        },
+    }
+
+
+@app.get("/protected/operator")
+async def operator_endpoint(current_user: User = Depends(require_operator)):
+    """Operator endpoint for testing RBAC."""
+    return {
+        "message": "Operator access granted",
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "role": current_user.role.value,
+        },
+    }
+
+
+@app.get("/protected/service")
+async def service_endpoint(current_user: User = Depends(require_service)):
+    """Service endpoint for testing RBAC."""
+    return {
+        "message": "Service access granted",
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "role": current_user.role.value,
         },
     }
 

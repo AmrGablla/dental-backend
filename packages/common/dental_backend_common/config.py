@@ -67,6 +67,30 @@ class SecuritySettings(BaseSettings):
         default=7, description="JWT refresh token expiration time in days"
     )
 
+    # KMS and encryption settings
+    kms_key_id: str | None = Field(
+        default=None, description="AWS KMS key ID for encryption"
+    )
+    encryption_enabled: bool = Field(
+        default=True, description="Enable encryption for sensitive data"
+    )
+
+    # TLS settings
+    tls_cert_file: str | None = Field(
+        default=None, description="TLS certificate file path"
+    )
+    tls_key_file: str | None = Field(
+        default=None, description="TLS private key file path"
+    )
+
+    # Rate limiting
+    rate_limit_requests: int = Field(
+        default=100, description="Rate limit requests per minute"
+    )
+    rate_limit_window: int = Field(
+        default=60, description="Rate limit window in seconds"
+    )
+
     model_config = SettingsConfigDict(env_prefix="SECURITY_")
 
     @validator("secret_key")
@@ -167,6 +191,25 @@ class Settings(BaseSettings):
     )
     audit_log_enabled: bool = Field(default=True, description="Enable audit logging")
     encryption_enabled: bool = Field(default=True, description="Enable data encryption")
+
+    # PII and PHI handling
+    pii_encryption_enabled: bool = Field(
+        default=True, description="Enable PII encryption"
+    )
+    phi_logging_enabled: bool = Field(
+        default=False, description="Enable PHI logging (should be False in production)"
+    )
+    pseudonymization_enabled: bool = Field(
+        default=True, description="Enable patient identifier pseudonymization"
+    )
+
+    # Data retention and deletion
+    soft_delete_enabled: bool = Field(
+        default=True, description="Enable soft delete for data retention"
+    )
+    data_purge_enabled: bool = Field(
+        default=True, description="Enable automatic data purge"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"
