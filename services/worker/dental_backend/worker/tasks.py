@@ -12,6 +12,12 @@ from dental_backend_common.database import (
     JobStatus,
     update_job_progress,
 )
+from dental_backend_common.geometry import (
+    MeshFormat,
+    MeshProcessor,
+    ValidationLevel,
+    run_round_trip_tests,
+)
 from dental_backend_common.session import SessionLocal
 from dental_backend_common.tracing import trace_task
 
@@ -460,3 +466,268 @@ def segment_dental_scan(
 
     logger.info(f"Dental scan segmentation task {task_id} completed successfully")
     return result
+
+
+@celery.task(
+    bind=True,
+    base=BaseTask,
+    name="dental_backend.worker.tasks.process_mesh_3d",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+)
+@trace_task("process_mesh_3d")
+def process_mesh_3d(
+    self,
+    input_path: str,
+    output_path: str,
+    validate: bool = True,
+    normalize: bool = False,
+    units: Optional[str] = None,
+    output_format: Optional[str] = None,
+    validation_level: str = "standard",
+    memory_limit_mb: int = 1024,
+    job_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Process 3D mesh with validation and normalization."""
+    task_id = self.request.id
+    correlation_id = self.request.correlation_id or task_id
+
+    logger.info(f"Starting 3D mesh processing task {task_id} for {input_path}")
+
+    # Update job status to processing
+    if self.db and job_id:
+        try:
+            job = self.db.query(Job).filter(Job.id == UUID(job_id)).first()
+            if job:
+                job.status = JobStatus.PROCESSING
+                job.started_at = time.time()
+                job.progress = 10
+                self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to update job status: {e}")
+            self.db.rollback()
+
+    try:
+        # Create mesh processor
+        processor = MeshProcessor(
+            memory_limit_mb=memory_limit_mb,
+            validation_level=ValidationLevel(validation_level),
+        )
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 20)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        # Process mesh
+        validation_report = processor.process_mesh(
+            input_path=input_path,
+            output_path=output_path,
+            validate=validate,
+            normalize=normalize,
+            units=units,
+            output_format=MeshFormat(output_format) if output_format else None,
+        )
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 90)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        result = {
+            "task_id": task_id,
+            "correlation_id": correlation_id,
+            "status": "completed",
+            "input_path": input_path,
+            "output_path": output_path,
+            "validation_report": {
+                "is_valid": validation_report.is_valid,
+                "issues": validation_report.issues,
+                "warnings": validation_report.warnings,
+                "repairs_applied": validation_report.repairs_applied,
+                "mesh_info": {
+                    "vertices": validation_report.mesh_info.vertices,
+                    "faces": validation_report.mesh_info.faces,
+                    "volume": validation_report.mesh_info.volume,
+                    "surface_area": validation_report.mesh_info.surface_area,
+                    "is_watertight": validation_report.mesh_info.is_watertight,
+                    "is_manifold": validation_report.mesh_info.is_manifold,
+                },
+            },
+            "timestamp": time.time(),
+        }
+
+        logger.info(f"3D mesh processing task {task_id} completed successfully")
+        return result
+
+    except Exception as e:
+        logger.error(f"3D mesh processing task {task_id} failed: {e}")
+        raise
+
+
+@celery.task(
+    bind=True,
+    base=BaseTask,
+    name="dental_backend.worker.tasks.validate_mesh",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+)
+@trace_task("validate_mesh")
+def validate_mesh(
+    self,
+    file_path: str,
+    validation_level: str = "standard",
+    job_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Validate a 3D mesh and return detailed report."""
+    task_id = self.request.id
+    correlation_id = self.request.correlation_id or task_id
+
+    logger.info(f"Starting mesh validation task {task_id} for {file_path}")
+
+    # Update job status to processing
+    if self.db and job_id:
+        try:
+            job = self.db.query(Job).filter(Job.id == UUID(job_id)).first()
+            if job:
+                job.status = JobStatus.PROCESSING
+                job.started_at = time.time()
+                job.progress = 10
+                self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to update job status: {e}")
+            self.db.rollback()
+
+    try:
+        # Create mesh processor
+        processor = MeshProcessor(validation_level=ValidationLevel(validation_level))
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 30)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        # Load and validate mesh
+        mesh, validation_report = processor.load_mesh(file_path, validate=True)
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 90)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        result = {
+            "task_id": task_id,
+            "correlation_id": correlation_id,
+            "status": "completed",
+            "file_path": file_path,
+            "validation_report": {
+                "is_valid": validation_report.is_valid,
+                "issues": validation_report.issues,
+                "warnings": validation_report.warnings,
+                "repairs_applied": validation_report.repairs_applied,
+                "validation_level": validation_report.validation_level.value,
+                "mesh_info": {
+                    "vertices": validation_report.mesh_info.vertices,
+                    "faces": validation_report.mesh_info.faces,
+                    "volume": validation_report.mesh_info.volume,
+                    "surface_area": validation_report.mesh_info.surface_area,
+                    "is_watertight": validation_report.mesh_info.is_watertight,
+                    "is_manifold": validation_report.mesh_info.is_manifold,
+                    "has_normals": validation_report.mesh_info.has_normals,
+                },
+                "validation_time": validation_report.validation_time,
+            },
+            "timestamp": time.time(),
+        }
+
+        logger.info(f"Mesh validation task {task_id} completed successfully")
+        return result
+
+    except Exception as e:
+        logger.error(f"Mesh validation task {task_id} failed: {e}")
+        raise
+
+
+@celery.task(
+    bind=True,
+    base=BaseTask,
+    name="dental_backend.worker.tasks.test_mesh_formats",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+)
+@trace_task("test_mesh_formats")
+def test_mesh_formats(
+    self,
+    memory_limit_mb: int = 1024,
+    job_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Test round-trip loading and saving for all supported mesh formats."""
+    task_id = self.request.id
+    correlation_id = self.request.correlation_id or task_id
+
+    logger.info(f"Starting mesh format testing task {task_id}")
+
+    # Update job status to processing
+    if self.db and job_id:
+        try:
+            job = self.db.query(Job).filter(Job.id == UUID(job_id)).first()
+            if job:
+                job.status = JobStatus.PROCESSING
+                job.started_at = time.time()
+                job.progress = 10
+                self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to update job status: {e}")
+            self.db.rollback()
+
+    try:
+        # Create mesh processor
+        processor = MeshProcessor(memory_limit_mb=memory_limit_mb)
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 30)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        # Run round-trip tests
+        test_results = run_round_trip_tests(processor)
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 90)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        result = {
+            "task_id": task_id,
+            "correlation_id": correlation_id,
+            "status": "completed",
+            "test_results": {
+                format.value: success for format, success in test_results.items()
+            },
+            "supported_formats": [
+                format.value for format in processor.get_supported_formats()
+            ],
+            "timestamp": time.time(),
+        }
+
+        logger.info(f"Mesh format testing task {task_id} completed successfully")
+        return result
+
+    except Exception as e:
+        logger.error(f"Mesh format testing task {task_id} failed: {e}")
+        raise

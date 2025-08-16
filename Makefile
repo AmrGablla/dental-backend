@@ -260,6 +260,22 @@ test-worker-tasks:
 	@echo "Testing worker tasks..."
 	python scripts/test_worker_system.py --tasks-only
 
+test-geometry:
+	@echo "🧪 Testing EPIC E7 Geometry System..."
+	@source venv/bin/activate && python scripts/test_geometry_system.py
+
+test-geometry-basic:
+	@echo "🔧 Testing Basic Geometry Functions..."
+	@source venv/bin/activate && python -c "from scripts.test_geometry_system import GeometrySystemTester; import asyncio; asyncio.run(GeometrySystemTester().test_mesh_processor_basic())"
+
+test-geometry-formats:
+	@echo "📁 Testing Mesh Format Support..."
+	@source venv/bin/activate && python -c "from scripts.test_geometry_system import GeometrySystemTester; import asyncio; asyncio.run(GeometrySystemTester().test_round_trip_formats())"
+
+create-mesh-fixtures:
+	@echo "🎨 Creating Sample Mesh Fixtures..."
+	@source venv/bin/activate && python tests/fixtures/sample_meshes.py
+
 # Infrastructure deployment
 deploy-s3:
 	@echo "Deploying S3 infrastructure..."
