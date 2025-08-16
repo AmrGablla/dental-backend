@@ -276,6 +276,23 @@ create-mesh-fixtures:
 	@echo "🎨 Creating Sample Mesh Fixtures..."
 	@source venv/bin/activate && python tests/fixtures/sample_meshes.py
 
+# EPIC E8 - Preprocessing Pipeline Tests
+test-preprocessing:
+	@echo "🔧 Testing EPIC E8 Preprocessing Pipeline..."
+	@source venv/bin/activate && python scripts/test_preprocessing_system.py
+
+test-preprocessing-basic:
+	@echo "🔧 Testing Basic Preprocessing Functions..."
+	@source venv/bin/activate && python -c "from scripts.test_preprocessing_system import PreprocessingSystemTester; import asyncio; asyncio.run(PreprocessingSystemTester().test_pipeline_configuration())"
+
+test-preprocessing-pipeline:
+	@echo "🔄 Testing Pipeline Execution..."
+	@source venv/bin/activate && python -c "from scripts.test_preprocessing_system import PreprocessingSystemTester; import asyncio; asyncio.run(PreprocessingSystemTester().test_pipeline_execution())"
+
+test-preprocessing-caching:
+	@echo "💾 Testing Pipeline Caching..."
+	@source venv/bin/activate && python -c "from scripts.test_preprocessing_system import PreprocessingSystemTester; import asyncio; asyncio.run(PreprocessingSystemTester().test_pipeline_caching())"
+
 # Infrastructure deployment
 deploy-s3:
 	@echo "Deploying S3 infrastructure..."

@@ -33,6 +33,7 @@ cryptography>=41.0.0
 trimesh>=4.0.0
 numpy>=1.24.0
 scipy>=1.11.0
+open3d>=0.17.0
 
 # HTTP client
 httpx>=0.25.0

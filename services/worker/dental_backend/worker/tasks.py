@@ -18,6 +18,11 @@ from dental_backend_common.geometry import (
     ValidationLevel,
     run_round_trip_tests,
 )
+from dental_backend_common.preprocessing import (
+    PipelineConfig,
+    PreprocessingPipeline,
+    create_default_pipeline,
+)
 from dental_backend_common.session import SessionLocal
 from dental_backend_common.tracing import trace_task
 
@@ -730,4 +735,185 @@ def test_mesh_formats(
 
     except Exception as e:
         logger.error(f"Mesh format testing task {task_id} failed: {e}")
+        raise
+
+
+@celery.task(
+    bind=True,
+    base=BaseTask,
+    name="dental_backend.worker.tasks.run_preprocessing_pipeline",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+)
+@trace_task("run_preprocessing_pipeline")
+def run_preprocessing_pipeline(
+    self,
+    input_path: str,
+    output_path: str,
+    pipeline_config: dict,
+    job_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Run preprocessing pipeline on a mesh file."""
+    task_id = self.request.id
+    correlation_id = correlation_id or task_id
+
+    logger.info(f"Starting preprocessing pipeline task {task_id}")
+
+    # Update job status to processing
+    if self.db and job_id:
+        try:
+            job = self.db.query(Job).filter(Job.id == UUID(job_id)).first()
+            if job:
+                job.status = JobStatus.PROCESSING
+                job.started_at = time.time()
+                job.progress = 5
+                self.db.commit()
+        except Exception as e:
+            logger.error(f"Failed to update job status: {e}")
+            self.db.rollback()
+
+    try:
+        # Load pipeline configuration
+        if pipeline_config:
+            config = PipelineConfig.from_dict(pipeline_config)
+        else:
+            config = create_default_pipeline()
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 10)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        # Load input mesh
+        import trimesh
+
+        input_mesh = trimesh.load(input_path)
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 20)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        # Create pipeline
+        pipeline = PreprocessingPipeline(config)
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 30)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        # Process mesh through pipeline
+        processed_mesh, step_metrics = pipeline.process(input_mesh)
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 80)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        # Save processed mesh
+        processed_mesh.export(output_path)
+
+        # Update progress
+        if self.db and job_id:
+            try:
+                update_job_progress(self.db, job_id, 95)
+            except Exception as e:
+                logger.error(f"Failed to update progress: {e}")
+
+        # Get cache statistics
+        cache_stats = pipeline.get_cache_stats()
+
+        # Calculate total processing time
+        total_processing_time = sum(
+            metrics.processing_time for metrics in step_metrics.values()
+        )
+
+        result = {
+            "task_id": task_id,
+            "correlation_id": correlation_id,
+            "status": "completed",
+            "input_path": input_path,
+            "output_path": output_path,
+            "pipeline_config": config.to_dict(),
+            "input_vertices": len(input_mesh.vertices),
+            "input_faces": len(input_mesh.faces),
+            "output_vertices": len(processed_mesh.vertices),
+            "output_faces": len(processed_mesh.faces),
+            "processing_time": total_processing_time,
+            "step_metrics": {
+                step: {
+                    "input_vertices": metrics.input_vertices,
+                    "input_faces": metrics.input_faces,
+                    "output_vertices": metrics.output_vertices,
+                    "output_faces": metrics.output_faces,
+                    "processing_time": metrics.processing_time,
+                    "memory_usage_mb": metrics.memory_usage_mb,
+                    "vertex_reduction_ratio": metrics.vertex_reduction_ratio,
+                    "face_reduction_ratio": metrics.face_reduction_ratio,
+                }
+                for step, metrics in step_metrics.items()
+            },
+            "cache_stats": cache_stats,
+            "timestamp": time.time(),
+        }
+
+        logger.info(f"Preprocessing pipeline task {task_id} completed successfully")
+        return result
+
+    except Exception as e:
+        logger.error(f"Preprocessing pipeline task {task_id} failed: {e}")
+        raise
+
+
+@celery.task(
+    bind=True,
+    base=BaseTask,
+    name="dental_backend.worker.tasks.create_pipeline_config",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+)
+@trace_task("create_pipeline_config")
+def create_pipeline_config(
+    self,
+    pipeline_request: dict,
+    job_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Create a new pipeline configuration."""
+    task_id = self.request.id
+    correlation_id = correlation_id or task_id
+
+    logger.info(f"Starting pipeline config creation task {task_id}")
+
+    try:
+        # Create pipeline configuration
+        config = PipelineConfig.from_dict(pipeline_request)
+
+        # Validate configuration
+        config.validate(config)
+
+        result = {
+            "task_id": task_id,
+            "correlation_id": correlation_id,
+            "status": "completed",
+            "pipeline_config": config.to_dict(),
+            "timestamp": time.time(),
+        }
+
+        logger.info(f"Pipeline config creation task {task_id} completed successfully")
+        return result
+
+    except Exception as e:
+        logger.error(f"Pipeline config creation task {task_id} failed: {e}")
         raise

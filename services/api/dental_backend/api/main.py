@@ -20,6 +20,7 @@ from dental_backend.api.dependencies import (
 from dental_backend.api.files import router as files_router
 from dental_backend.api.geometry import router as geometry_router
 from dental_backend.api.jobs import router as jobs_router
+from dental_backend.api.preprocessing import router as preprocessing_router
 from dental_backend.api.segments import router as segments_router
 from dental_backend.api.uploads import router as uploads_router
 
@@ -59,6 +60,7 @@ app.include_router(cases_router)
 app.include_router(files_router)
 app.include_router(geometry_router)
 app.include_router(jobs_router)
+app.include_router(preprocessing_router)
 app.include_router(segments_router)
 
 
