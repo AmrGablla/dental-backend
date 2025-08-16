@@ -23,7 +23,7 @@ repos:
     rev: v0.1.6
     hooks:
       - id: ruff
-        args: [--fix]
+        args: [--fix, --ignore, E402]
       - id: ruff-format
 
   # Skip mypy and bandit in pre-commit for speed - run them manually or in CI

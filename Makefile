@@ -140,6 +140,11 @@ docker-worker-shell:
 	cd infrastructure && docker-compose exec worker /bin/bash
 
 # Database commands
+db-init:
+	@echo "Initializing database migrations..."
+	alembic init migrations || true
+	@echo "Database migrations initialized!"
+
 db-migrate:
 	@echo "Running database migrations..."
 	alembic upgrade head
@@ -150,6 +155,31 @@ db-rollback:
 
 db-reset:
 	@echo "Resetting database..."
+	alembic downgrade base
+	alembic upgrade head
+
+db-revision:
+	@echo "Creating new migration revision..."
+	alembic revision --autogenerate -m "$(message)"
+
+db-show:
+	@echo "Showing migration history..."
+	alembic history
+
+db-current:
+	@echo "Showing current migration..."
+	alembic current
+
+db-stamp:
+	@echo "Stamping database with current revision..."
+	alembic stamp head
+
+migrate:
+	@echo "Running database migrations..."
+	alembic upgrade head
+
+resetdb:
+	@echo "Resetting database (drop all tables and recreate)..."
 	alembic downgrade base
 	alembic upgrade head
 
