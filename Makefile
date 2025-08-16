@@ -235,6 +235,19 @@ test-validation:
 	@echo "Testing file validation..."
 	python scripts/test_upload_pipeline.py --validation-only
 
+# API testing
+test-api:
+	@echo "Testing API endpoints..."
+	python scripts/test_api_endpoints.py
+
+test-api-health:
+	@echo "Testing API health endpoints..."
+	python scripts/test_api_endpoints.py --health-only
+
+test-api-docs:
+	@echo "Testing API documentation..."
+	python scripts/test_api_endpoints.py --docs-only
+
 # Infrastructure deployment
 deploy-s3:
 	@echo "Deploying S3 infrastructure..."
