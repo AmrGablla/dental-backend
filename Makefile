@@ -221,3 +221,25 @@ pre-commit:
 pre-commit-fast:
 	@echo "Running fast pre-commit checks..."
 	pre-commit run --all-files
+
+# Upload pipeline testing
+test-upload:
+	@echo "Testing upload pipeline..."
+	python scripts/test_upload_pipeline.py
+
+test-storage:
+	@echo "Testing storage service..."
+	python scripts/test_upload_pipeline.py --storage-only
+
+test-validation:
+	@echo "Testing file validation..."
+	python scripts/test_upload_pipeline.py --validation-only
+
+# Infrastructure deployment
+deploy-s3:
+	@echo "Deploying S3 infrastructure..."
+	cd infrastructure/terraform && terraform init && terraform apply
+
+destroy-s3:
+	@echo "Destroying S3 infrastructure..."
+	cd infrastructure/terraform && terraform destroy

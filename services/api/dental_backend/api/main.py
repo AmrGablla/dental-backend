@@ -12,6 +12,7 @@ from dental_backend.api.dependencies import (
     require_operator,
     require_service,
 )
+from dental_backend.api.uploads import router as uploads_router
 
 # Get settings
 settings = get_settings()
@@ -42,6 +43,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(compliance_router)
+app.include_router(uploads_router)
 
 
 @app.get("/")

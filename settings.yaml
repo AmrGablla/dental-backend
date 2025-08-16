@@ -78,6 +78,35 @@ allowed_file_types:
   - glb
 temp_dir: /tmp/dental-backend
 
+# File Upload Configuration
+upload:
+  presigned_url_expiry: 3600  # 1 hour
+  max_concurrent_uploads: 5
+  chunk_size_mb: 10
+  validation_timeout: 300  # 5 minutes
+
+# Antivirus Configuration
+antivirus:
+  enabled: true
+  clamav_host: localhost
+  clamav_port: 3310
+  scan_timeout: 30
+  max_file_size_scan_mb: 100
+
+# File Validation Configuration
+validation:
+  max_vertices: 1000000  # 1M vertices
+  max_faces: 2000000     # 2M faces
+  max_file_size_mb: 100
+  allowed_mime_types:
+    - application/octet-stream
+    - model/stl
+    - model/ply
+    - model/obj
+    - model/gltf+json
+    - model/gltf-binary
+  scan_3d_models: true
+
 # HIPAA/GDPR Compliance Configuration
 data_retention_days: 2555  # 7 years for HIPAA compliance
 audit_log_enabled: true

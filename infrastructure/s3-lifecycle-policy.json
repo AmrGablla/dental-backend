@@ -1,0 +1,85 @@
+{
+  "Rules": [
+    {
+      "ID": "TransitionToIA",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        },
+        {
+          "Days": 365,
+          "StorageClass": "DEEP_ARCHIVE"
+        }
+      ]
+    },
+    {
+      "ID": "DeleteOldVersions",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "NoncurrentVersionTransitions": [
+        {
+          "NoncurrentDays": 30,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "NoncurrentDays": 90,
+          "StorageClass": "GLACIER"
+        }
+      ],
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 2555
+      }
+    },
+    {
+      "ID": "DeleteExpiredObjects",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Expiration": {
+        "Days": 2555
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 7
+      }
+    },
+    {
+      "ID": "ArchiveProcessedFiles",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "*/cases/*/processed/"
+      },
+      "Transitions": [
+        {
+          "Days": 7,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "Days": 30,
+          "StorageClass": "GLACIER"
+        }
+      ]
+    },
+    {
+      "ID": "DeleteRawFiles",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "*/cases/*/raw/"
+      },
+      "Expiration": {
+        "Days": 1
+      }
+    }
+  ]
+}

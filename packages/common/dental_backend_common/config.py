@@ -155,6 +155,65 @@ class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WORKER_")
 
 
+class UploadSettings(BaseSettings):
+    """File upload configuration settings."""
+
+    presigned_url_expiry: int = Field(
+        default=3600, description="Presigned URL expiration time in seconds"
+    )
+    max_concurrent_uploads: int = Field(
+        default=5, description="Maximum concurrent uploads per user"
+    )
+    chunk_size_mb: int = Field(
+        default=10, description="Chunk size for large file uploads in MB"
+    )
+    validation_timeout: int = Field(
+        default=300, description="File validation timeout in seconds"
+    )
+
+    model_config = SettingsConfigDict(env_prefix="UPLOAD_")
+
+
+class AntivirusSettings(BaseSettings):
+    """Antivirus configuration settings."""
+
+    enabled: bool = Field(default=True, description="Enable antivirus scanning")
+    clamav_host: str = Field(default="localhost", description="ClamAV daemon host")
+    clamav_port: int = Field(default=3310, description="ClamAV daemon port")
+    scan_timeout: int = Field(
+        default=30, description="Antivirus scan timeout in seconds"
+    )
+    max_file_size_scan_mb: int = Field(
+        default=100, description="Maximum file size for antivirus scanning in MB"
+    )
+
+    model_config = SettingsConfigDict(env_prefix="ANTIVIRUS_")
+
+
+class ValidationSettings(BaseSettings):
+    """File validation configuration settings."""
+
+    max_vertices: int = Field(
+        default=1000000, description="Maximum vertices for 3D models"
+    )
+    max_faces: int = Field(default=2000000, description="Maximum faces for 3D models")
+    max_file_size_mb: int = Field(default=100, description="Maximum file size in MB")
+    allowed_mime_types: list[str] = Field(
+        default=[
+            "application/octet-stream",
+            "model/stl",
+            "model/ply",
+            "model/obj",
+            "model/gltf+json",
+            "model/gltf-binary",
+        ],
+        description="Allowed MIME types for upload",
+    )
+    scan_3d_models: bool = Field(default=True, description="Enable 3D model validation")
+
+    model_config = SettingsConfigDict(env_prefix="VALIDATION_")
+
+
 class Settings(BaseSettings):
     """Main application settings."""
 
@@ -172,6 +231,9 @@ class Settings(BaseSettings):
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     api: APISettings = Field(default_factory=APISettings)
     worker: WorkerSettings = Field(default_factory=WorkerSettings)
+    upload: UploadSettings = Field(default_factory=UploadSettings)
+    antivirus: AntivirusSettings = Field(default_factory=AntivirusSettings)
+    validation: ValidationSettings = Field(default_factory=ValidationSettings)
 
     # File processing
     max_file_size_mb: int = Field(default=100, description="Maximum file size in MB")
