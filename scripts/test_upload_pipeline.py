@@ -29,8 +29,8 @@ def create_test_stl_file(file_path: str, vertex_count: int = 1000) -> None:
             f.write("  facet normal 0.0 0.0 1.0\n")
             f.write("    outer loop\n")
             f.write(f"      vertex {x} 0.0 0.0\n")
-            f.write(f"      vertex {x+0.1} 0.0 0.0\n")
-            f.write(f"      vertex {x+0.05} 0.1 0.0\n")
+            f.write(f"      vertex {x + 0.1} 0.0 0.0\n")
+            f.write(f"      vertex {x + 0.05} 0.1 0.0\n")
             f.write("    endloop\n")
             f.write("  endfacet\n")
 
@@ -272,7 +272,7 @@ def main():
 
     results = []
     for test_name, test_func in tests:
-        print(f"\n{'='*20} {test_name} {'='*20}")
+        print(f"\n{'=' * 20} {test_name} {'=' * 20}")
         try:
             result = test_func()
             results.append((test_name, result))
@@ -281,7 +281,7 @@ def main():
             results.append((test_name, False))
 
     # Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("📊 Test Results Summary")
     print("=" * 60)
 

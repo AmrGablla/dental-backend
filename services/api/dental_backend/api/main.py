@@ -9,8 +9,6 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-logger = logging.getLogger(__name__)
-
 from dental_backend.api.auth import router as auth_router
 from dental_backend.api.cases import router as cases_router
 from dental_backend.api.compliance import router as compliance_router
@@ -23,6 +21,8 @@ from dental_backend.api.files import router as files_router
 from dental_backend.api.jobs import router as jobs_router
 from dental_backend.api.segments import router as segments_router
 from dental_backend.api.uploads import router as uploads_router
+
+logger = logging.getLogger(__name__)
 
 # Get settings
 settings = get_settings()

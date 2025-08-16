@@ -1,6 +1,5 @@
 """FastAPI dependencies for authentication and authorization."""
 
-
 from dental_backend_common.audit import audit_logger
 from dental_backend_common.auth import (
     User,

@@ -112,6 +112,45 @@ class LoggingSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LOG_")
 
 
+class TracingSettings(BaseSettings):
+    """OpenTelemetry tracing configuration settings."""
+
+    enabled: bool = Field(default=True, description="Enable OpenTelemetry tracing")
+    service_name: str = Field(
+        default="dental-backend", description="Service name for traces"
+    )
+    service_version: str = Field(
+        default="0.1.0", description="Service version for traces"
+    )
+
+    # OTLP exporter configuration
+    otlp_endpoint: str = Field(
+        default="http://localhost:4317", description="OTLP exporter endpoint"
+    )
+    otlp_protocol: str = Field(
+        default="http/protobuf", description="OTLP protocol (http/protobuf or grpc)"
+    )
+
+    # Sampling configuration
+    sampling_rate: float = Field(default=1.0, description="Sampling rate (0.0 to 1.0)")
+
+    # Jaeger configuration (alternative to OTLP)
+    jaeger_enabled: bool = Field(default=False, description="Enable Jaeger exporter")
+    jaeger_endpoint: str = Field(
+        default="http://localhost:14268/api/traces", description="Jaeger endpoint"
+    )
+
+    # Correlation ID configuration
+    correlation_id_header: str = Field(
+        default="X-Correlation-ID", description="HTTP header for correlation ID"
+    )
+    correlation_id_generate: bool = Field(
+        default=True, description="Generate correlation ID if not provided"
+    )
+
+    model_config = SettingsConfigDict(env_prefix="TRACING_")
+
+
 class APISettings(BaseSettings):
     """API configuration settings."""
 
@@ -127,12 +166,24 @@ class APISettings(BaseSettings):
 class WorkerSettings(BaseSettings):
     """Background worker configuration settings."""
 
+    # Broker configuration
     broker_url: str = Field(
         default="redis://localhost:6379/0", description="Celery broker URL"
     )
     result_backend: str = Field(
         default="redis://localhost:6379/0", description="Celery result backend URL"
     )
+
+    # Alternative broker options
+    use_rabbitmq: bool = Field(
+        default=False, description="Use RabbitMQ instead of Redis as broker"
+    )
+    rabbitmq_url: str = Field(
+        default="amqp://guest:guest@localhost:5672//",
+        description="RabbitMQ connection URL",
+    )
+
+    # Serialization
     task_serializer: str = Field(default="json", description="Celery task serializer")
     result_serializer: str = Field(
         default="json", description="Celery result serializer"
@@ -140,8 +191,12 @@ class WorkerSettings(BaseSettings):
     accept_content: list[str] = Field(
         default=["json"], description="Celery accepted content types"
     )
+
+    # Time and timezone
     timezone: str = Field(default="UTC", description="Celery timezone")
     enable_utc: bool = Field(default=True, description="Enable UTC in Celery")
+
+    # Task configuration
     task_track_started: bool = Field(default=True, description="Track started tasks")
     task_time_limit: int = Field(
         default=30 * 60,
@@ -152,7 +207,85 @@ class WorkerSettings(BaseSettings):
         description="Task soft time limit in seconds",  # 25 minutes
     )
 
+    # Worker concurrency and performance
+    worker_concurrency: int = Field(
+        default=4, description="Number of worker processes/threads"
+    )
+    worker_prefetch_multiplier: int = Field(
+        default=1, description="Worker prefetch multiplier"
+    )
+    worker_disable_rate_limits: bool = Field(
+        default=True, description="Disable rate limits for workers"
+    )
+    task_acks_late: bool = Field(default=True, description="Acknowledge tasks late")
+
+    # Graceful shutdown
+    worker_shutdown_timeout: int = Field(
+        default=30, description="Worker shutdown timeout in seconds"
+    )
+    task_always_eager: bool = Field(
+        default=False, description="Execute tasks synchronously (for testing)"
+    )
+
+    # Retry and backoff configuration
+    task_default_retry_delay: int = Field(
+        default=60, description="Default retry delay in seconds"
+    )
+    task_max_retries: int = Field(
+        default=3, description="Maximum number of retries per task"
+    )
+    task_retry_backoff: bool = Field(
+        default=True, description="Enable exponential backoff for retries"
+    )
+    task_retry_backoff_max: int = Field(
+        default=600, description="Maximum backoff delay in seconds"
+    )
+
+    # Dead letter queue configuration
+    task_reject_on_worker_lost: bool = Field(
+        default=True, description="Reject tasks when worker is lost"
+    )
+    task_ignore_result: bool = Field(default=False, description="Ignore task results")
+
+    # Queue configuration
+    task_default_queue: str = Field(default="default", description="Default queue name")
+    task_default_exchange: str = Field(
+        default="default", description="Default exchange name"
+    )
+    task_default_routing_key: str = Field(
+        default="default", description="Default routing key"
+    )
+
+    # Result backend configuration
+    result_expires: int = Field(
+        default=3600, description="Result expiration time in seconds"
+    )
+    result_persistent: bool = Field(default=True, description="Make results persistent")
+
+    # Monitoring and visibility
+    worker_send_task_events: bool = Field(
+        default=True, description="Send task events for monitoring"
+    )
+    task_send_sent_event: bool = Field(
+        default=True, description="Send sent events for tasks"
+    )
+
+    # Security
+    broker_connection_retry_on_startup: bool = Field(
+        default=True, description="Retry broker connection on startup"
+    )
+    broker_connection_max_retries: int = Field(
+        default=10, description="Maximum broker connection retries"
+    )
+
     model_config = SettingsConfigDict(env_prefix="WORKER_")
+
+    @property
+    def effective_broker_url(self) -> str:
+        """Get the effective broker URL based on configuration."""
+        if self.use_rabbitmq:
+            return self.rabbitmq_url
+        return self.broker_url
 
 
 class UploadSettings(BaseSettings):
@@ -229,6 +362,7 @@ class Settings(BaseSettings):
     s3: S3Settings = Field(default_factory=S3Settings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    tracing: TracingSettings = Field(default_factory=TracingSettings)
     api: APISettings = Field(default_factory=APISettings)
     worker: WorkerSettings = Field(default_factory=WorkerSettings)
     upload: UploadSettings = Field(default_factory=UploadSettings)

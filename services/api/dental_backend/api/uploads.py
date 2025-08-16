@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Dict, Optional
 from uuid import UUID
 
-from dental_backend_common.auth import get_current_user
 from dental_backend_common.database import File, FileStatus, User
 from dental_backend_common.session import get_db_session
 from dental_backend_common.storage import (
@@ -18,6 +17,8 @@ from dental_backend_common.storage import (
 )
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+
+from dental_backend.api.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 

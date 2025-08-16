@@ -4,12 +4,28 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
-from dental_backend_common.auth import get_current_user
-from dental_backend_common.database import Case, File, Job, JobStatus, User
+from dental_backend_common.database import (
+    Case,
+    File,
+    Job,
+    JobStatus,
+    User,
+    cancel_job,
+    create_job,
+    retry_job,
+)
 from dental_backend_common.session import get_db_session
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from dental_backend_common.tracing import generate_correlation_id, get_correlation_id
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+from dental_backend.api.dependencies import get_current_user
+from dental_backend.worker.tasks import (
+    process_mesh_file,
+    segment_dental_scan,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,194 +77,260 @@ class JobListResponse(BaseModel):
     pages: int = Field(..., description="Total number of pages")
 
 
-@router.post(
-    "/{case_id}/segment",
-    response_model=JobResponse,
-    status_code=status.HTTP_201_CREATED,
-)
+@router.get("/{job_id}/progress", response_model=dict)
+async def stream_job_progress(
+    job_id: str,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Stream job progress updates via Server-Sent Events."""
+
+    # Validate job exists and user has access
+    try:
+        job_uuid = UUID(job_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid job ID format") from err
+
+    job = db.query(Job).filter(Job.id == job_uuid).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Check if user has access to the case
+    case = db.query(Case).filter(Case.id == job.case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    # For now, return current progress (in a real implementation, this would stream updates)
+    async def generate_progress():
+        """Generate progress updates."""
+        import asyncio
+        import json
+
+        # Send initial progress
+        progress_data = {
+            "job_id": str(job.id),
+            "status": job.status.value,
+            "progress": job.progress,
+            "message": f"Job {job.job_type} is {job.status.value}",
+            "timestamp": job.updated_at.isoformat() if job.updated_at else None,
+        }
+
+        if job.error_message:
+            progress_data["error"] = job.error_message
+
+        if job.result:
+            progress_data["result"] = job.result
+
+        yield f"data: {json.dumps(progress_data)}\n\n"
+
+        # In a real implementation, you would:
+        # 1. Subscribe to job progress updates (Redis pub/sub, WebSocket, etc.)
+        # 2. Stream updates as they occur
+        # 3. Handle client disconnection gracefully
+
+        # For demo purposes, simulate some updates
+        if job.status == JobStatus.PROCESSING:
+            for i in range(5):
+                await asyncio.sleep(2)
+                progress_data["progress"] = min(100, job.progress + (i + 1) * 20)
+                progress_data["timestamp"] = (
+                    job.updated_at.isoformat() if job.updated_at else None
+                )
+                yield f"data: {json.dumps(progress_data)}\n\n"
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+        },
+    )
+
+
+@router.post("/{case_id}/segment", response_model=JobResponse)
 async def create_segmentation_job(
     case_id: str,
     request: JobCreateRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-    db_session: Session = Depends(get_db_session),
 ) -> JobResponse:
     """Create a segmentation job for a case."""
+
+    # Generate correlation ID
+    correlation_id = get_correlation_id() or generate_correlation_id()
+
+    # Validate case exists
     try:
-        # Verify case exists
-        case = (
-            db_session.query(Case)
-            .filter(Case.id == UUID(case_id), Case.is_deleted is False)
-            .first()
-        )
+        case_uuid = UUID(case_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid case ID format") from err
 
-        if not case:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Case not found"
-            )
+    case = db.query(Case).filter(Case.id == case_uuid).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
 
-        # Verify file exists and belongs to the case
-        file_record = (
-            db_session.query(File)
-            .filter(
-                File.id == UUID(request.file_id),
-                File.case_id == UUID(case_id),
-                File.is_deleted is False,
-            )
-            .first()
-        )
+    # Validate file exists and belongs to case
+    try:
+        file_uuid = UUID(request.file_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid file ID format") from err
 
-        if not file_record:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="File not found in case"
-            )
-
-        # Check for existing job with same request key (idempotency)
-        if request.request_key:
-            existing_job = (
-                db_session.query(Job)
-                .filter(
-                    Job.case_id == UUID(case_id),
-                    Job.file_id == UUID(request.file_id),
-                    Job.job_type == request.job_type,
-                    Job.job_metadata.contains({"request_key": request.request_key}),
-                    Job.is_deleted is False,
-                )
-                .first()
-            )
-
-            if existing_job:
-                logger.info(
-                    f"Idempotent job request: returning existing job {existing_job.id}"
-                )
-                return JobResponse(
-                    id=str(existing_job.id),
-                    case_id=str(existing_job.case_id),
-                    file_id=str(existing_job.file_id),
-                    job_type=existing_job.job_type,
-                    status=existing_job.status.value,
-                    priority=existing_job.priority,
-                    created_by=str(existing_job.created_by),
-                    created_at=existing_job.created_at.isoformat(),
-                    started_at=existing_job.started_at.isoformat()
-                    if existing_job.started_at
-                    else None,
-                    completed_at=existing_job.completed_at.isoformat()
-                    if existing_job.completed_at
-                    else None,
-                    progress=existing_job.progress,
-                    result=existing_job.result,
-                    error_message=existing_job.error_message,
-                    retry_count=existing_job.retry_count,
-                    max_retries=existing_job.max_retries,
-                    parameters=existing_job.parameters,
-                    job_metadata=existing_job.job_metadata,
-                )
-
-        # Create new job
-        job = Job(
-            case_id=UUID(case_id),
-            file_id=UUID(request.file_id),
-            job_type=request.job_type,
-            status=JobStatus.PENDING,
-            priority=request.priority,
-            created_by=current_user.id,
-            parameters=request.parameters,
-            job_metadata={"request_key": request.request_key}
-            if request.request_key
-            else None,
-        )
-
-        db_session.add(job)
-        db_session.commit()
-        db_session.refresh(job)
-
-        # TODO: Enqueue job to Celery/background worker
-        # from dental_backend_worker.tasks import process_segmentation_job
-        # task = process_segmentation_job.delay(str(job.id))
-        # job.celery_task_id = task.id
-        # db_session.commit()
-
-        logger.info(
-            f"Segmentation job created: {job.id} for case {case_id} by user {current_user.id}"
-        )
-
-        return JobResponse(
-            id=str(job.id),
-            case_id=str(job.case_id),
-            file_id=str(job.file_id),
-            job_type=job.job_type,
-            status=job.status.value,
-            priority=job.priority,
-            created_by=str(job.created_by),
-            created_at=job.created_at.isoformat(),
-            started_at=job.started_at.isoformat() if job.started_at else None,
-            completed_at=job.completed_at.isoformat() if job.completed_at else None,
-            progress=job.progress,
-            result=job.result,
-            error_message=job.error_message,
-            retry_count=job.retry_count,
-            max_retries=job.max_retries,
-            parameters=job.parameters,
-            job_metadata=job.job_metadata,
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to create segmentation job: {e}")
+    file = (
+        db.query(File).filter(File.id == file_uuid, File.case_id == case_uuid).first()
+    )
+    if not file:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create segmentation job",
-        ) from e
+            status_code=404, detail="File not found or does not belong to case"
+        )
+
+    # Check for existing job with same request key (idempotency)
+    if request.request_key:
+        existing_job = (
+            db.query(Job)
+            .filter(
+                Job.case_id == case_uuid,
+                Job.job_type == "segmentation",
+                Job.parameters.contains({"request_key": request.request_key}),
+            )
+            .first()
+        )
+
+        if existing_job:
+            logger.info(
+                f"Returning existing job {existing_job.id} for request key {request.request_key}"
+            )
+            return JobResponse.from_orm(existing_job)
+
+    # Create job record
+    job = create_job(
+        db_session=db,
+        case_id=case_id,
+        job_type="segmentation",
+        created_by=str(current_user.id),
+        file_id=request.file_id,
+        priority=request.priority,
+        parameters={
+            "request_key": request.request_key,
+            "correlation_id": correlation_id,
+            **(request.parameters or {}),
+        },
+    )
+
+    # Submit Celery task
+    task = segment_dental_scan.delay(
+        file_id=request.file_id,
+        case_id=case_id,
+        job_id=str(job.id),
+        correlation_id=correlation_id,
+    )
+
+    # Update job with Celery task ID
+    job.celery_task_id = task.id
+    db.commit()
+
+    logger.info(
+        f"Created segmentation job {job.id} with task {task.id} and correlation ID {correlation_id}"
+    )
+
+    return JobResponse.from_orm(job)
+
+
+@router.post("/{case_id}/process", response_model=JobResponse)
+async def create_processing_job(
+    case_id: str,
+    request: JobCreateRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> JobResponse:
+    """Create a file processing job for a case."""
+
+    # Generate correlation ID
+    correlation_id = get_correlation_id() or generate_correlation_id()
+
+    # Validate case exists
+    try:
+        case_uuid = UUID(case_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid case ID format") from err
+
+    case = db.query(Case).filter(Case.id == case_uuid).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    # Validate file exists and belongs to case
+    try:
+        file_uuid = UUID(request.file_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid file ID format") from err
+
+    file = (
+        db.query(File).filter(File.id == file_uuid, File.case_id == case_uuid).first()
+    )
+    if not file:
+        raise HTTPException(
+            status_code=404, detail="File not found or does not belong to case"
+        )
+
+    # Create job record
+    job = create_job(
+        db_session=db,
+        case_id=case_id,
+        job_type="file_processing",
+        created_by=str(current_user.id),
+        file_id=request.file_id,
+        priority=request.priority,
+        parameters={
+            "request_key": request.request_key,
+            "correlation_id": correlation_id,
+            **(request.parameters or {}),
+        },
+    )
+
+    # Submit Celery task
+    task = process_mesh_file.delay(
+        file_path=file.file_path,
+        file_type=file.file_type,
+        job_id=str(job.id),
+        correlation_id=correlation_id,
+    )
+
+    # Update job with Celery task ID
+    job.celery_task_id = task.id
+    db.commit()
+
+    logger.info(
+        f"Created processing job {job.id} with task {task.id} and correlation ID {correlation_id}"
+    )
+
+    return JobResponse.from_orm(job)
 
 
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
+    db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-    db_session: Session = Depends(get_db_session),
 ) -> JobResponse:
     """Get a specific job by ID."""
     try:
-        job = (
-            db_session.query(Job)
-            .filter(Job.id == UUID(job_id), Job.is_deleted is False)
-            .first()
-        )
+        job_uuid = UUID(job_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid job ID format") from err
 
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
-            )
+    job = db.query(Job).filter(Job.id == job_uuid).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
 
-        return JobResponse(
-            id=str(job.id),
-            case_id=str(job.case_id),
-            file_id=str(job.file_id),
-            job_type=job.job_type,
-            status=job.status.value,
-            priority=job.priority,
-            created_by=str(job.created_by),
-            created_at=job.created_at.isoformat(),
-            started_at=job.started_at.isoformat() if job.started_at else None,
-            completed_at=job.completed_at.isoformat() if job.completed_at else None,
-            progress=job.progress,
-            result=job.result,
-            error_message=job.error_message,
-            retry_count=job.retry_count,
-            max_retries=job.max_retries,
-            parameters=job.parameters,
-            job_metadata=job.job_metadata,
-        )
+    # Verify user has access to the case
+    case = db.query(Case).filter(Case.id == job.case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get job {job_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get job",
-        ) from e
+    return JobResponse.from_orm(job)
 
 
 @router.get("/{case_id}/jobs", response_model=JobListResponse)
@@ -344,147 +426,59 @@ async def list_case_jobs(
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponse)
-async def cancel_job(
+async def cancel_job_endpoint(
     job_id: str,
+    db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-    db_session: Session = Depends(get_db_session),
 ) -> JobResponse:
     """Cancel a running job."""
     try:
-        job = (
-            db_session.query(Job)
-            .filter(Job.id == UUID(job_id), Job.is_deleted is False)
-            .first()
-        )
+        job_uuid = UUID(job_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid job ID format") from err
 
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
-            )
-
-        # Check if job can be cancelled
-        if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Job cannot be cancelled in status {job.status.value}",
-            )
-
-        # Cancel job
-        job.status = JobStatus.CANCELLED
-
-        # TODO: Cancel Celery task if running
-        # if job.celery_task_id:
-        #     from celery import current_app
-        #     current_app.control.revoke(job.celery_task_id, terminate=True)
-
-        db_session.commit()
-        db_session.refresh(job)
-
-        logger.info(f"Job cancelled: {job_id} by user {current_user.id}")
-
-        return JobResponse(
-            id=str(job.id),
-            case_id=str(job.case_id),
-            file_id=str(job.file_id),
-            job_type=job.job_type,
-            status=job.status.value,
-            priority=job.priority,
-            created_by=str(job.created_by),
-            created_at=job.created_at.isoformat(),
-            started_at=job.started_at.isoformat() if job.started_at else None,
-            completed_at=job.completed_at.isoformat() if job.completed_at else None,
-            progress=job.progress,
-            result=job.result,
-            error_message=job.error_message,
-            retry_count=job.retry_count,
-            max_retries=job.max_retries,
-            parameters=job.parameters,
-            job_metadata=job.job_metadata,
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to cancel job {job_id}: {e}")
+    # Use the database function to cancel the job
+    success = cancel_job(db, job_id)
+    if not success:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to cancel job",
-        ) from e
+            status_code=400, detail="Job cannot be cancelled in its current status"
+        )
+
+    # Get the updated job
+    job = db.query(Job).filter(Job.id == job_uuid).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    logger.info(f"Job cancelled: {job_id} by user {current_user.id}")
+
+    return JobResponse.from_orm(job)
 
 
 @router.post("/{job_id}/retry", response_model=JobResponse)
-async def retry_job(
+async def retry_job_endpoint(
     job_id: str,
+    db: Session = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
-    db_session: Session = Depends(get_db_session),
 ) -> JobResponse:
     """Retry a failed job."""
     try:
-        job = (
-            db_session.query(Job)
-            .filter(Job.id == UUID(job_id), Job.is_deleted is False)
-            .first()
-        )
+        job_uuid = UUID(job_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid job ID format") from err
 
-        if not job:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
-            )
-
-        # Check if job can be retried
-        if job.status != JobStatus.FAILED:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Job cannot be retried in status {job.status.value}",
-            )
-
-        if job.retry_count >= job.max_retries:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Job has exceeded maximum retry attempts",
-            )
-
-        # Reset job for retry
-        job.status = JobStatus.PENDING
-        job.progress = 0
-        job.error_message = None
-        job.retry_count += 1
-
-        # TODO: Enqueue retry job to Celery
-        # from dental_backend_worker.tasks import process_segmentation_job
-        # task = process_segmentation_job.delay(str(job.id))
-        # job.celery_task_id = task.id
-
-        db_session.commit()
-        db_session.refresh(job)
-
-        logger.info(f"Job retry initiated: {job_id} by user {current_user.id}")
-
-        return JobResponse(
-            id=str(job.id),
-            case_id=str(job.case_id),
-            file_id=str(job.file_id),
-            job_type=job.job_type,
-            status=job.status.value,
-            priority=job.priority,
-            created_by=str(job.created_by),
-            created_at=job.created_at.isoformat(),
-            started_at=job.started_at.isoformat() if job.started_at else None,
-            completed_at=job.completed_at.isoformat() if job.completed_at else None,
-            progress=job.progress,
-            result=job.result,
-            error_message=job.error_message,
-            retry_count=job.retry_count,
-            max_retries=job.max_retries,
-            parameters=job.parameters,
-            job_metadata=job.job_metadata,
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to retry job {job_id}: {e}")
+    # Use the database function to retry the job
+    success = retry_job(db, job_id)
+    if not success:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retry job",
-        ) from e
+            status_code=400,
+            detail="Job cannot be retried in its current status or has exceeded max retries",
+        )
+
+    # Get the updated job
+    job = db.query(Job).filter(Job.id == job_uuid).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    logger.info(f"Job retry initiated: {job_id} by user {current_user.id}")
+
+    return JobResponse.from_orm(job)

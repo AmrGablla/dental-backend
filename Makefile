@@ -248,6 +248,18 @@ test-api-docs:
 	@echo "Testing API documentation..."
 	python scripts/test_api_endpoints.py --docs-only
 
+test-worker:
+	@echo "Testing worker system (EPIC E6)..."
+	python scripts/test_worker_system.py
+
+test-worker-infrastructure:
+	@echo "Testing worker infrastructure..."
+	python scripts/test_worker_system.py --infrastructure-only
+
+test-worker-tasks:
+	@echo "Testing worker tasks..."
+	python scripts/test_worker_system.py --tasks-only
+
 # Infrastructure deployment
 deploy-s3:
 	@echo "Deploying S3 infrastructure..."

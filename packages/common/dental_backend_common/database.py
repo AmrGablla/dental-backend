@@ -1,5 +1,6 @@
 """Database models and configuration for the dental backend system."""
 
+import time
 import uuid
 from enum import Enum
 
@@ -416,3 +417,118 @@ def create_tables(engine) -> None:
 def drop_tables(engine) -> None:
     """Drop all database tables."""
     Base.metadata.drop_all(bind=engine)
+
+
+def update_job_progress(db_session, job_id: str, progress: int) -> None:
+    """Update job progress percentage."""
+    from uuid import UUID
+
+    job = db_session.query(Job).filter(Job.id == UUID(job_id)).first()
+    if job:
+        job.progress = min(100, max(0, progress))  # Ensure progress is between 0-100
+        db_session.commit()
+
+
+def update_job_status(db_session, job_id: str, status: JobStatus, **kwargs) -> None:
+    """Update job status and optional fields."""
+    from uuid import UUID
+
+    job = db_session.query(Job).filter(Job.id == UUID(job_id)).first()
+    if job:
+        job.status = status
+        for key, value in kwargs.items():
+            if hasattr(job, key):
+                setattr(job, key, value)
+        db_session.commit()
+
+
+def get_job_by_task_id(db_session, task_id: str) -> Job | None:
+    """Get job by Celery task ID."""
+    return db_session.query(Job).filter(Job.celery_task_id == task_id).first()
+
+
+def create_job(
+    db_session,
+    case_id: str,
+    job_type: str,
+    created_by: str,
+    file_id: str | None = None,
+    priority: int = 5,
+    parameters: dict | None = None,
+    celery_task_id: str | None = None,
+) -> Job:
+    """Create a new job record."""
+    from uuid import UUID
+
+    job = Job(
+        case_id=UUID(case_id),
+        file_id=UUID(file_id) if file_id else None,
+        job_type=job_type,
+        status=JobStatus.PENDING,
+        priority=priority,
+        created_by=UUID(created_by),
+        parameters=parameters,
+        celery_task_id=celery_task_id,
+    )
+
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
+    return job
+
+
+def get_jobs_by_case(
+    db_session, case_id: str, limit: int = 100, offset: int = 0
+) -> list[Job]:
+    """Get jobs for a specific case with pagination."""
+    from uuid import UUID
+
+    return (
+        db_session.query(Job)
+        .filter(Job.case_id == UUID(case_id))
+        .order_by(Job.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
+def get_jobs_by_status(db_session, status: JobStatus, limit: int = 100) -> list[Job]:
+    """Get jobs by status."""
+    return (
+        db_session.query(Job)
+        .filter(Job.status == status)
+        .order_by(Job.created_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def cancel_job(db_session, job_id: str) -> bool:
+    """Cancel a job if it's in a cancellable state."""
+    from uuid import UUID
+
+    job = db_session.query(Job).filter(Job.id == UUID(job_id)).first()
+    if job and job.status in [JobStatus.PENDING, JobStatus.PROCESSING]:
+        job.status = JobStatus.CANCELLED
+        job.completed_at = time.time()
+        db_session.commit()
+        return True
+    return False
+
+
+def retry_job(db_session, job_id: str) -> bool:
+    """Retry a failed job."""
+    from uuid import UUID
+
+    job = db_session.query(Job).filter(Job.id == UUID(job_id)).first()
+    if job and job.status == JobStatus.FAILED and job.retry_count < job.max_retries:
+        job.status = JobStatus.PENDING
+        job.retry_count += 1
+        job.error_message = None
+        job.started_at = None
+        job.completed_at = None
+        job.progress = 0
+        db_session.commit()
+        return True
+    return False

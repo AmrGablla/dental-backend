@@ -5,13 +5,14 @@ from enum import Enum
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from dental_backend_common.auth import get_current_user
 from dental_backend_common.database import Case, Segment, User
 from dental_backend_common.session import get_db_session
 from dental_backend_common.storage import StorageService
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+from dental_backend.api.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
